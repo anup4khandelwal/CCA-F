@@ -2,27 +2,28 @@
 
 A practice project covering agentic architecture (Domain 1), tool design / MCP
 integration (Domain 2), and context management & reliability (Domain 5). It
-implements a small banking-support agent on the Anthropic Messages API with a
-hand-written agentic loop, MCP-style tool contracts, structured error
-handling, and a programmatic policy hook with an escalation workflow.
+implements a small banking-support agent on the Anthropic Messages API
+(TypeScript, `@anthropic-ai/sdk`) with a hand-written agentic loop, MCP-style
+tool contracts, structured error handling, and a programmatic policy hook with
+an escalation workflow.
 
 ## Layout
 
 ```
-agentic_loop/
-  tools.py       # 4 tool definitions (MCP-shaped: name + description + JSON Schema)
+src/
+  tools.ts       # 4 tool definitions (MCP-shaped: name + description + JSON Schema)
                  #   two deliberately-overlapping read tools with boundary-drawing
                  #   descriptions, plus refund + escalation tools
-  loop.py        # the agentic loop: branches on stop_reason
+  loop.ts        # the agentic loop: branches on stop_reason
                  #   (tool_use / end_turn / pause_turn / max_tokens / refusal)
-  errors.py      # structured errors: errorCategory + isRetryable + message
-  hooks.py       # pre-tool-use hook layer; RefundThresholdHook blocks refunds
+  errors.ts      # structured errors: errorCategory + isRetryable + message
+  hooks.ts       # pre-tool-use hook layer; RefundThresholdHook blocks refunds
                  #   > $500 and redirects to the create_support_ticket escalation
-  backend.py     # deterministic in-memory bank + transient-failure injector
-  mcp_server.py  # optional: the same tools served over a real MCP stdio server
+  backend.ts     # deterministic in-memory bank + transient-failure injector
+  mcpServer.ts   # the same tools served over a real MCP stdio server
+  runLive.ts     # end-to-end scenarios against the real API (needs your key)
 tests/
-  test_offline.py  # loop/hook/error tests with a scripted fake client (no API key)
-run_live.py        # end-to-end scenarios against the real API (needs your key)
+  loop.test.ts   # loop/hook/error tests with a scripted fake client (no API key)
 ```
 
 ## How each exercise requirement is met
@@ -33,9 +34,9 @@ description states exactly what it does *and does not* return, and names the
 other tool for the out-of-scope case ("did my payment go through" → history,
 never balance). Every description also documents its error contract. The
 definitions use the MCP tool shape (name / description / inputSchema) and
-`mcp_server.py` serves them over real MCP.
+`mcpServer.ts` serves them over real MCP via `@modelcontextprotocol/sdk`.
 
-**2. stop_reason-driven loop.** `loop.py` requests → checks `stop_reason`:
+**2. stop_reason-driven loop.** `loop.ts` requests → checks `stop_reason`:
 `tool_use` executes every tool block and returns *all* results in a single
 user message (keeps parallel calling healthy), `end_turn` returns the final
 text, `pause_turn` re-sends to resume, `max_tokens` and `refusal` are
@@ -62,26 +63,25 @@ escalation workflow. The executor keeps a duplicate threshold check as
 defense in depth.
 
 **5. Multi-concern messages.** The system prompt instructs decomposition; the
-loop supports parallel `tool_use` blocks; `scenario_multi` in `run_live.py`
-(and `MultiConcernTests` offline) verify a 3-concern message triggers all
-three tools and one synthesized answer.
+loop supports parallel `tool_use` blocks; the `multi` scenario in
+`src/runLive.ts` (and the multi-concern test offline) verify a 3-concern
+message triggers all three tools and one synthesized answer.
 
 ## Running
 
-Offline tests (no key needed):
-
 ```bash
-pip install -r requirements.txt
-python -m unittest discover -s tests -v
+npm install
+npm run typecheck        # strict TS, no emit
+npm test                 # 14 offline tests via node:test — no API key needed
 ```
 
 Live scenarios (uses model `claude-opus-5`):
 
 ```bash
 export ANTHROPIC_API_KEY=sk-ant-...
-python run_live.py            # all six scenarios
-python run_live.py hook       # just the hook/escalation scenario
-python run_live.py transient multi
+npm run live                    # all six scenarios
+npm run live -- hook            # just the hook/escalation scenario
+npm run live -- transient multi
 ```
 
 Scenarios: `simple` (baseline single call), `selection` (overlapping-tool
@@ -89,8 +89,8 @@ disambiguation), `transient` (injected failures → retries), `validation`
 (over-refund rejected), `hook` ($750 refund blocked → ticket), `multi`
 (three concerns in one message).
 
-Optional MCP server (`pip install mcp`):
+MCP server:
 
 ```bash
-python -m agentic_loop.mcp_server   # serves the same 4 tools over stdio
+npm run mcp     # serves the same 4 tools over stdio
 ```
